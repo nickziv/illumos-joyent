@@ -74,6 +74,7 @@ CHR	*pushptr = pushc;
 CHR	*slptr = slist;
 
 #define	CNAME "/usr/share/lib/ccs/ncform"
+#define DTRACE_CNAME "/usr/share/lib/ccs/dtrace_ncform"
 #define	RATNAME "/usr/share/lib/ccs/nrform"
 #define	EUCNAME "/usr/share/lib/ccs/nceucform"
 

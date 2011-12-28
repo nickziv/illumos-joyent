@@ -135,6 +135,7 @@
  *	 v
  *       "_<RANGE>09<RANGE>a-z<RANGE>A-Z"
  */
+extern int dtrace;
 #define	RANGE		0x40ff
 
 #define	MAXNCG 1000

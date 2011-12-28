@@ -37,13 +37,13 @@ static void ctail(void);
 static void rtail(void);
 
 void
-phead1(void)
+phead1()
 {
 	ratfor ? rhd1() : chd1();
 }
 
 static void
-chd1(void)
+chd1()
 {
 	if (*v_stmp == 'y')
 		(void) fprintf(fout, "#ident\t\"lex: %s %s\"\n",
@@ -81,13 +81,23 @@ chd1(void)
 		(void) fprintf(fout, "#include <stdio.h>\n");
 		(void) fprintf(fout, "#include <stdlib.h>\n");
 		(void) fprintf(fout, "#include <inttypes.h>\n");
+		if (dtrace) {
+			(void) fprintf(fout, "#include \"lex_probes.h\"\n");
+		}
 	}
 	if (ZCH > NCH)
 		(void) fprintf(fout, "# define U(x) ((x)&0377)\n");
 	else
 	(void) fprintf(fout, "# define U(x) x\n");
 	(void) fprintf(fout, "# define NLSTATE yyprevious=YYNEWLINE\n");
-	(void) fprintf(fout, "# define BEGIN yybgin = yysvec + 1 +\n");
+	if (dtrace) {
+		(void) fprintf(fout, "# define BEGIN(x) {yybgin =\
+yysvec + 1 + x; LEX_BEGIN(x, yybgin);}\n");
+		     
+	} else {
+
+		(void) fprintf(fout, "# define BEGIN yybgin = yysvec + 1 +\n");
+	}
 	(void) fprintf(fout, "# define INITIAL 0\n");
 	(void) fprintf(fout, "# define YYLERR yysvec\n");
 	(void) fprintf(fout, "# define YYSTATE (yyestate-yysvec-1)\n");
@@ -159,7 +169,7 @@ chd1(void)
 	(void) fprintf(fout, "#endif\n");
 	(void) fprintf(fout,
 	"# define unput(c)"
-	" {yytchar= (c);if(yytchar=='\\n')yylineno--;*yysptr++=yytchar;}\n");
+	"{yytchar= (c);if(yytchar=='\\n')yylineno--;*yysptr++=yytchar;}\n");
 	(void) fprintf(fout, "# define yymore() (yymorfg=1)\n");
 	if (widecio) {
 		(void) fprintf(fout, "#ifndef __cplusplus\n");
@@ -245,8 +255,13 @@ chd1(void)
 				(void) fprintf(fout, "#endif\n");
 			}
 		} else {
-			(void) fprintf(fout,
-"# define REJECT { nstr = yyreject(); goto yyfussy;}\n");
+			if (dtrace) {
+				(void) fprintf(fout,
+	"# define REJECT { LEX_REJECT(); nstr = yyreject(); goto yyfussy;}\n");
+			} else {
+				(void) fprintf(fout,
+	"# define REJECT { nstr = yyreject(); goto yyfussy;}\n");
+			}
 			(void) fprintf(fout, "int yyleng;\n");
 
 			/*

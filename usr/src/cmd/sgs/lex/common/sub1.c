@@ -527,11 +527,13 @@ cpyact(void)
 	sw = TRUE;
 	savline = yyline;
 
+	(void) fprintf(fout, "\nLEX_MATCH_REGEX(%d, %s);\n", yyline, "__LINE__");
 	if (sargv[optind] == NULL)
 		(void) fprintf(fout, "\n# line %d\n", yyline);
 	else
 		(void) fprintf(fout,
 		    "\n# line %d \"%s\"\n", yyline, sargv[optind]);
+
 
 	while (!eof) {
 		c = gch();

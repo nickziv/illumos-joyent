@@ -35,6 +35,14 @@
 #include "sgs.h"
 #include <locale.h>
 #include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+int dtrace;
+#define Y_D_ERR "lex: can't specify switches 'Y' and 'D' simultaneously"
 
 static wchar_t  L_INITIAL[] = {'I', 'N', 'I', 'T', 'I', 'A', 'L', 0};
 static void get1core(void);
@@ -46,6 +54,8 @@ static void get3core(void);
 static void free3core(void);
 #endif
 
+#define PROBES_D_SRC "/usr/share/lib/ccs/lex_probes.d"
+#define GEN_D_SRC "lex_probes.d"
 int
 main(int argc, char **argv)
 {
@@ -53,6 +63,13 @@ main(int argc, char **argv)
 	int c;
 	char *path = NULL;
 	Boolean eoption = 0, woption = 0;
+	int probes_d_src;
+	int gen_d_src;
+	struct stat dstat;
+	size_t dsz;
+	char *d_src_file;
+	char *cd_gen_cur;
+	size_t written = 0;
 
 	sargv = argv;
 	sargc = argc;
@@ -60,7 +77,7 @@ main(int argc, char **argv)
 #ifdef DEBUG
 	while ((c = getopt(argc, argv, "dyctvnewVQ:Y:")) != EOF) {
 #else
-	while ((c = getopt(argc, argv, "ctvnewVQ:Y:")) != EOF) {
+	while ((c = getopt(argc, argv, "DctvnewVQ:Y:")) != EOF) {
 #endif
 		switch (c) {
 #ifdef DEBUG
@@ -71,6 +88,28 @@ main(int argc, char **argv)
 				yydebug = TRUE;
 				break;
 #endif
+			case 'D':
+				/* generate lex_probes.d */
+				dtrace = 1;
+				probes_d_src = open(PROBES_D_SRC, O_RDONLY);
+				gen_d_src = openat(AT_FDCWD, GEN_D_SRC,
+				    O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+				fstat(probes_d_src, &dstat);
+				dsz = dstat.st_size;
+				d_src_file =
+				    mmap(NULL, dsz, PROT_READ, MAP_PRIVATE,
+				      probes_d_src, 0);
+				cd_gen_cur = d_src_file;
+				while (written != dsz) {
+					write(gen_d_src, cd_gen_cur, 1);
+					cd_gen_cur++;
+					written++;
+				}
+				written = 0;
+				munmap(d_src_file, dsz);
+				close(probes_d_src);
+				close(gen_d_src);
+				break;
 			case 'V':
 				(void) fprintf(stderr, "lex: %s %s\n",
 				    (const char *)SGU_PKG,
@@ -83,6 +122,10 @@ main(int argc, char **argv)
 					"lex: -Q should be followed by [y/n]");
 				break;
 			case 'Y':
+				if (dtrace) {
+					fprintf(stderr,"%s\n", Y_D_ERR);
+					exit(1);
+				}
 				path = (char *)malloc(strlen(optarg) +
 				    sizeof ("/nceucform") + 1);
 				path = strcpy(path, optarg);
@@ -222,9 +265,16 @@ main(int argc, char **argv)
 		if (ratfor)
 			error("Ratfor is not supported by -w or -e option.");
 		path = EUCNAME;
-	}
-	else
+	} else {
 		path = ratfor ? RATNAME : CNAME;
+	}
+
+	/*
+	 * We don't (yet) have probes for nceeucform.
+	 */
+	if (dtrace && !handleeuc) {
+		path = DTRACE_CNAME;
+	}
 
 	fother = fopen(path, "r");
 	if (fother == NULL)
