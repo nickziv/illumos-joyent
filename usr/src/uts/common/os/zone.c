@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, Joyent Inc. All rights reserved.
+ * Copyright (c) 2011, 2012, Joyent Inc. All rights reserved.
  */
 
 /*
@@ -373,6 +373,8 @@ rctl_hndl_t rc_zone_max_swap;
 rctl_hndl_t rc_zone_phys_mem;
 rctl_hndl_t rc_zone_max_lofi;
 rctl_hndl_t rc_zone_cpu_cap;
+rctl_hndl_t rc_zone_cpu_baseline;
+rctl_hndl_t rc_zone_cpu_burst_time;
 rctl_hndl_t rc_zone_zfs_io_pri;
 rctl_hndl_t rc_zone_nlwps;
 rctl_hndl_t rc_zone_nprocs;
@@ -1382,6 +1384,76 @@ static rctl_ops_t zone_cpu_cap_ops = {
 	rcop_no_test
 };
 
+/*ARGSUSED*/
+static rctl_qty_t
+zone_cpu_base_get(rctl_t *rctl, struct proc *p)
+{
+	ASSERT(MUTEX_HELD(&p->p_lock));
+	return (cpucaps_zone_get_base(p->p_zone));
+}
+
+/*
+ * The zone cpu base is used to set the baseline CPU for the zone
+ * so we can track when the zone is bursting.
+ */
+/*ARGSUSED*/
+static int
+zone_cpu_base_set(rctl_t *rctl, struct proc *p, rctl_entity_p_t *e,
+    rctl_qty_t nv)
+{
+	zone_t *zone = e->rcep_p.zone;
+
+	ASSERT(MUTEX_HELD(&p->p_lock));
+	ASSERT(e->rcep_t == RCENTITY_ZONE);
+
+	if (zone == NULL)
+		return (0);
+
+	return (cpucaps_zone_set_base(zone, nv));
+}
+
+static rctl_ops_t zone_cpu_base_ops = {
+	rcop_no_action,
+	zone_cpu_base_get,
+	zone_cpu_base_set,
+	rcop_no_test
+};
+
+/*ARGSUSED*/
+static rctl_qty_t
+zone_cpu_burst_time_get(rctl_t *rctl, struct proc *p)
+{
+	ASSERT(MUTEX_HELD(&p->p_lock));
+	return (cpucaps_zone_get_burst_time(p->p_zone));
+}
+
+/*
+ * The zone cpu burst time is used to set the amount of time CPU(s) can be
+ * bursting for the zone.
+ */
+/*ARGSUSED*/
+static int
+zone_cpu_burst_time_set(rctl_t *rctl, struct proc *p, rctl_entity_p_t *e,
+    rctl_qty_t nv)
+{
+	zone_t *zone = e->rcep_p.zone;
+
+	ASSERT(MUTEX_HELD(&p->p_lock));
+	ASSERT(e->rcep_t == RCENTITY_ZONE);
+
+	if (zone == NULL)
+		return (0);
+
+	return (cpucaps_zone_set_burst_time(zone, nv));
+}
+
+static rctl_ops_t zone_cpu_burst_time_ops = {
+	rcop_no_action,
+	zone_cpu_burst_time_get,
+	zone_cpu_burst_time_set,
+	rcop_no_test
+};
+
 /*
  * zone.zfs-io-pri resource control support (IO priority).
  */
@@ -2150,6 +2222,12 @@ zone_misc_kstat_update(kstat_t *ksp, int rw)
 	zmp->zm_avenrun5.value.ui32 = zone->zone_avenrun[1];
 	zmp->zm_avenrun15.value.ui32 = zone->zone_avenrun[2];
 
+	zmp->zm_run_ticks.value.ui64 = zone->zone_run_ticks;
+	zmp->zm_run_wait.value.ui64 = zone->zone_runq_cntr;
+	zmp->zm_fss_shr_pct.value.ui64 = zone->zone_fss_shr_pct;
+	zmp->zm_fss_pri_hi.value.ui64 = zone->zone_fss_pri_hi;
+	zmp->zm_fss_pri_avg.value.ui64 = zone->zone_fss_pri_avg;
+
 	return (0);
 }
 
@@ -2183,6 +2261,13 @@ zone_misc_kstat_create(zone_t *zone)
 	kstat_named_init(&zmp->zm_avenrun5, "avenrun_5min", KSTAT_DATA_UINT32);
 	kstat_named_init(&zmp->zm_avenrun15, "avenrun_15min",
 	    KSTAT_DATA_UINT32);
+	kstat_named_init(&zmp->zm_run_ticks, "run_ticks", KSTAT_DATA_UINT64);
+	kstat_named_init(&zmp->zm_run_wait, "run_queue", KSTAT_DATA_UINT64);
+	kstat_named_init(&zmp->zm_fss_shr_pct, "fss_share_percent",
+	    KSTAT_DATA_UINT32);
+	kstat_named_init(&zmp->zm_fss_pri_hi, "fss_pri_hi", KSTAT_DATA_UINT64);
+	kstat_named_init(&zmp->zm_fss_pri_avg, "fss_pri_avg",
+	    KSTAT_DATA_UINT64);
 
 	ksp->ks_update = zone_misc_kstat_update;
 	ksp->ks_private = zone;
@@ -2427,6 +2512,16 @@ zone_init(void)
 	    RCTL_GLOBAL_NOBASIC | RCTL_GLOBAL_COUNT |RCTL_GLOBAL_SYSLOG_NEVER |
 	    RCTL_GLOBAL_INFINITE,
 	    MAXCAP, MAXCAP, &zone_cpu_cap_ops);
+
+	rc_zone_cpu_baseline = rctl_register("zone.cpu-baseline",
+	    RCENTITY_ZONE, RCTL_GLOBAL_SIGNAL_NEVER | RCTL_GLOBAL_DENY_NEVER |
+	    RCTL_GLOBAL_NOBASIC | RCTL_GLOBAL_COUNT | RCTL_GLOBAL_SYSLOG_NEVER,
+	    MAXCAP, MAXCAP, &zone_cpu_base_ops);
+
+	rc_zone_cpu_burst_time = rctl_register("zone.cpu-burst-time",
+	    RCENTITY_ZONE, RCTL_GLOBAL_SIGNAL_NEVER | RCTL_GLOBAL_DENY_NEVER |
+	    RCTL_GLOBAL_NOBASIC | RCTL_GLOBAL_COUNT | RCTL_GLOBAL_SYSLOG_NEVER,
+	    INT_MAX, INT_MAX, &zone_cpu_burst_time_ops);
 
 	rc_zone_zfs_io_pri = rctl_register("zone.zfs-io-priority",
 	    RCENTITY_ZONE, RCTL_GLOBAL_SIGNAL_NEVER | RCTL_GLOBAL_DENY_NEVER |
