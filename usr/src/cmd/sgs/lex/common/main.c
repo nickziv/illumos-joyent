@@ -96,9 +96,19 @@ main(int argc, char **argv)
 				    O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
 				fstat(probes_d_src, &dstat);
 				dsz = dstat.st_size;
-				d_src_file =
-				    mmap(NULL, dsz, PROT_READ, MAP_PRIVATE,
-				      probes_d_src, 0);
+				size_t rd_dsz = dsz;
+				size_t red = 0;
+				int p = 0;
+				d_src_file = malloc(dsz);
+				while (red != dsz) {
+					p = read(probes_d_src,
+						d_src_file,
+						(rd_dsz - red));
+					if (p == -1) {
+						perror(PROBES_D_SRC);
+					}
+					red += p;
+				}
 				cd_gen_cur = d_src_file;
 				while (written != dsz) {
 					write(gen_d_src, cd_gen_cur, 1);
@@ -106,7 +116,7 @@ main(int argc, char **argv)
 					written++;
 				}
 				written = 0;
-				munmap(d_src_file, dsz);
+				free(d_src_file);
 				close(probes_d_src);
 				close(gen_d_src);
 				break;
