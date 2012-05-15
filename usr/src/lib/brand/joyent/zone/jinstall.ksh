@@ -50,6 +50,13 @@ do
 done
 shift OPTIND-1
 
+ZONE_STATE=$(/usr/vm/sbin/vmadm list -p zonename="${ZONENAME}" -o state)
+if [[ ${ZONE_STATE} == "receiving" ]]; then
+    # Here we're doing an install for a received zone, the dataset should have
+    # already been created.
+    exit $ZONE_SUBPROC_OK
+fi
+
 if [[ -z $ZONEPATH || -z $ZONENAME ]]; then
 	print -u2 "Brand error: No zone path or name"
 	exit $ZONE_SUBPROC_USAGE
@@ -82,6 +89,12 @@ PDS_NAME=`mount | nawk -v p=$dname '{if ($1 == p) print $3}'`
 zfs snapshot $PDS_NAME/${TMPLZONE}@${bname}
 zfs clone -F -o quota=${ZQUOTA}g $PDS_NAME/${TMPLZONE}@${bname} \
     $PDS_NAME/$bname || fatal "failed to clone zone dataset"
+
+# Make sure zoneinit is setup to use -o xtrace, this handles old datasets where
+# is not yet enabled by default.
+if [[ -f ${ZROOT}/root/zoneinit && -z $(grep "^set -o xtrace" ${ZROOT}/root/zoneinit) ]]; then
+    sed -i "" -e "s/^#set -o xtrace/set -o xtrace/" ${ZROOT}/root/zoneinit
+fi
 
 if [ ! -d ${ZONEPATH}/config ]; then
     mkdir -p ${ZONEPATH}/config
